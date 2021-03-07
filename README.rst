@@ -22,6 +22,10 @@ Telegram Bot for playing The Crew: The Quest for Planet Nine
 * Free software: GNU General Public License v3
 * Documentation: https://crew9bot.readthedocs.io.
 
+Connecting
+----------
+
+https://t.me/Crew9Bot
 
 Features
 --------
