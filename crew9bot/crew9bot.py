@@ -1,5 +1,6 @@
 """Main module."""
 import configparser
+
 from telethon import TelegramClient, events  # type: ignore
 
 

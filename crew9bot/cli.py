@@ -1,10 +1,10 @@
 """Console script for crew9bot."""
-import sys
-import click
-from .crew9bot import load_config
-from . import crew9bot
-import asyncio
 import logging
+import sys
+
+import click
+
+from . import crew9bot
 
 
 @click.command()

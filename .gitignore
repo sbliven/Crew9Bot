@@ -106,3 +106,5 @@ ENV/
 
 # App config including secrets
 crew9bot.ini
+
+*.session

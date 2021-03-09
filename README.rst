@@ -16,7 +16,7 @@ Crew9Bot
 
 
 
-Telegram Bot for playing The Crew: The Quest for Planet Nine
+Telegram Bot for playing The Crew. Please purchase the game if you use this bot.
 
 
 * Free software: GNU General Public License v3
