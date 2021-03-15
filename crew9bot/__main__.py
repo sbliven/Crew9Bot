@@ -1,6 +1,6 @@
 import sys
 
-from . import cli
+from .cli import main
 
 if __name__ == "__main__":
-    sys.exit(cli.main())  # pragma: no cover
+    sys.exit(main())  # pragma: no cover
