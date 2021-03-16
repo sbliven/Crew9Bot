@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum, auto
 from abc import ABC, abstractmethod
-from typing import Dict, List, Set, TYPE_CHECKING
+from typing import Dict, List, Set, TYPE_CHECKING, Union
 import random
 import math
 import asyncio
@@ -185,7 +185,9 @@ class Game:
 _games: Dict[int, Game] = {}
 
 
-def get_game(game_id):
+def get_game(game_id: Union[int,str]):
+    if isinstance(game_id, str):
+        game_id = Game.decode_game_id(game_id)
     return _games[game_id]
 
 

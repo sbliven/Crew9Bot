@@ -2,7 +2,7 @@
 import asyncio
 import configparser
 import logging
-from .game import Game, get_games, get_player
+from .game import Game, get_games, get_player, get_game
 
 from telethon import TelegramClient, events, Button  # type: ignore
 
@@ -33,7 +33,9 @@ class Crew9Bot:
         # Public commands
         @self.client.on(events.NewMessage(pattern=r"/start"))
         async def handler(event):
-            logging.info("Received /start")
+            logging.info(f"Received {event.message.message}")
+            fields = event.message.message.strip().split()
+
             # keyboard = ReplyKeyboardMarkup()
             await event.respond(
                 """Welcome to *Crew9Bot!* Here are some available commands:
@@ -44,17 +46,45 @@ class Crew9Bot:
                 # buttons=[[Button.inline("/new")]],
             )
 
+            if len(fields) > 1:
+                try:
+                    logging.info(f"Auto-joining game {fields[1]}")
+                    game = get_game(fields[1])
+                    player = get_player(event.peer_id, self.client)
+                    await game.join(player)
+                except Exception:
+                    await event.respond(f"Error: I can't find game `{fields[1]}`")
+
         @self.client.on(events.NewMessage(pattern="/new"))
         async def handler(event):
-            logging.info("Received /new")
+            logging.info(f"Received {event.message.message}")
 
             player = get_player(event.peer_id, self.client)
             game = Game()
+
+            await event.respond(f"A new game has started! [Join {game.get_game_id()}](https://t.me/Crew9Bot?start={game.get_game_id()})")
             await game.join(player)
+
+        @self.client.on(events.NewMessage(pattern="/join"))
+        async def handler(event):
+            logging.info(f"Received {event.message.message}")
+            fields = event.message.message.strip().split()
+            if len(fields) != 2:
+                await event.respond("Error: Please provide a game ID.\n\nExample: `/join XXXXXXXX`")
+            else:
+                try:
+                    game = get_game(fields[1])
+                    player = get_player(event.peer_id, self.client)
+                    await game.join(player)
+                except Exception:
+                    await event.respond(f"Error: I can't find game `{fields[1]}`")
+
 
         # Private commands
         @self.client.on(events.NewMessage(pattern="/clear"))
         async def handler(event):
+            logging.info(f"Received {event.message.message}")
+
             m = await event.respond("Clearing keyboard", buttons=Button.clear())
             await self.client.delete_messages(event.chat_id, [event.id, m.id])
 
@@ -66,9 +96,9 @@ class Crew9Bot:
             await asyncio.sleep(5)
             await self.client.delete_messages(event.chat_id, [event.id, m.id])
 
-        @self.client.on(events.NewMessage(pattern="hello"))
+        @self.client.on(events.NewMessage(pattern="hello|hi|hey"))
         async def handler(event):
-            print("handled hello event")
+            logging.info(f"Received {event.message.message}")
             peer_id = event.peer_id
 
             you = await self.client.get_entity(event.peer_id)
@@ -77,7 +107,7 @@ class Crew9Bot:
 
         @self.client.on(events.NewMessage(pattern="/info"))
         async def handler(event):
-            logging.info("Received /info")
+            logging.info(f"Received {event.message.message}")
             me = await self.client.get_me()
             await event.respond(f"```\nget_me -> {me.stringify()}\n```")
 
@@ -92,7 +122,7 @@ class Crew9Bot:
 
         @self.client.on(events.NewMessage(pattern="/list"))
         async def handler(event):
-            logging.info("Received /list")
+            logging.info(f"Received {event.message.message}")
             msg = "Running games:\n\n"
 
             game_descriptions = await asyncio.gather(*(game.get_description() for game in get_games()))
