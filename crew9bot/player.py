@@ -7,7 +7,8 @@ from . import events as evt
 if TYPE_CHECKING:
     from telethon.types import Peer  # type: ignore
 
-    from .game import Card, Game
+    from .cards import Card
+    from .game import Game
 
 
 class Player(ABC):

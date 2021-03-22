@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Set
 
 if TYPE_CHECKING:
-    from .game import Card, Game, Player
+    from .cards import Card
+    from .game import Game, Player
 
 
 @dataclass
