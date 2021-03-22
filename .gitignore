@@ -108,3 +108,4 @@ ENV/
 crew9bot.ini
 
 *.session
+*.session-journal

@@ -18,13 +18,21 @@ class Game:
 
     def __init__(self):
         """Create a new game. Should normally be instantiated through the GameMaster"""
-        self.game_id = random.getrandbits(5 * 8)  # multiple of 5 for base32 encoding
+        self.game_id = self.random_game_id()  # multiple of 5 for base32 encoding
         self.players = []
 
     def get_game_id(self) -> str:
         "Get the human-readable game id"
+        return self.encode_game_id(self.game_id)
+
+    @classmethod
+    def random_game_id(cls) -> int:
+        return random.getrandbits(5 * 8)
+
+    @classmethod
+    def encode_game_id(cls, id: int) -> str:
         return base64.b32encode(
-            self.game_id.to_bytes(math.ceil(self.game_id.bit_length() / 8), "big")
+            id.to_bytes(5, "big")
         ).decode()
 
     @classmethod
