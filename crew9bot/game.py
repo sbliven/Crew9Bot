@@ -3,23 +3,29 @@ import base64
 import math
 import random
 from io import StringIO
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Union
+
+from asyncio.exceptions import InvalidStateError
 
 from . import events as evt
 from .cards import Card, Suite
 from .player import Player
+from .missions import Mission, all_missions
 
 
 class Game:
     game_id: int
     players: List[Player]
-    commander: int  # index of commander
     hands: Dict[Player, Set[Card]]
+    mission: Mission
+    started: bool
 
     def __init__(self):
         """Create a new game. Should normally be instantiated through the GameMaster"""
         self.game_id = self.random_game_id()  # multiple of 5 for base32 encoding
         self.players = []
+        self.mission = all_missions[1]
+        self.started = False
 
     def get_game_id(self) -> str:
         "Get the human-readable game id"
@@ -56,15 +62,23 @@ class Game:
         await asyncio.wait(tasks)
 
     async def begin(self):
+        self.started = True
+        # determine order
+        self.players = random.shuffle(self.players)
         # deal cards
         self.deal()
-        tasks = [
+
+
+        await asyncio.wait([
             asyncio.create_task(
-                player.notify(evt.BeginGame(self.hands[player], i == self.commander))
+                player.notify(evt.BeginGame(self.hands[player]))
             )
-            for i, player in enumerate(self.players)
-        ]
-        await asyncio.wait(tasks)
+            for player in self.players
+        ])
+
+        # choose tasks
+        tasks = self.make_tasks()
+        # TODO bidding round; assign randomly for now
 
     @classmethod
     def shuffle(kls) -> List[Card]:
@@ -105,3 +119,17 @@ class Game:
 
     def get_game_url(self):
         return f"https://t.me/Crew9Bot?start={self.get_game_id()}"
+
+    async def set_mission(self, mission: Union[int, Mission]):
+        if isinstance(mission, int):
+            mission = all_missions[mission]
+
+        if self.started:
+            raise InvalidStateError("Game already started")
+
+        await asyncio.wait([
+            asyncio.create_task(
+                player.notify(evt.MissionChange(mission))
+            )
+            for player in self.players
+        ])

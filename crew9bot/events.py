@@ -1,3 +1,4 @@
+from crew9bot.missions import Mission
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Set
 
@@ -41,3 +42,11 @@ class BeginGame(Event):
         super().__init__("Game started")
         self.cards = cards
         self.commander = commander
+
+
+class MissionChange(Event):
+    mission: Mission
+
+    def __init__(self, mission):
+        super().__init__("Mission changed")
+        self.mission = mission

@@ -155,6 +155,29 @@ class Crew9Bot:
                     "or [/join](/join) to play."
                 )
 
+        @self.client.on(events.NewMessage(pattern="/mission"))
+        async def mission_cmd(event):
+            fields = event.message.message.strip().split()
+
+            player = self.get_player(event.peer_id)
+            if not player.game:
+                await event.respond(
+                    "Sorry, you're not in any games now! Use [/new](/new) "
+                    "or [/join](/join) to play."
+                )
+            game = player.game
+
+            if len(fields) < 2:
+                await event.respond(
+                    f"You are on **Mission {game.mission.mission_id}**:"
+                    f"{game.mission.description}"
+                )
+            elif len(fields) == 2:
+                mission = int(fields[1])
+                await game.set_mission(mission)
+            else:
+                await event.respond("usage: [/mission](/mission) [mission number]")
+
     def start(self):
         self.client.start(bot_token=self.token)
 

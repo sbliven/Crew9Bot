@@ -1,3 +1,4 @@
+from crew9bot import game
 import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, List, Optional, Set
@@ -49,7 +50,6 @@ class TelegramPlayer(Player):
                 f"{name} wants to play Crew9Bot with you! "
                 f"Join {self.get_game_link()} now!"
             )
-            logging.info(f"Sending '{msg}'")
             await self.client.send_message(self.peer, msg)
 
         elif isinstance(gameevent, evt.BeginGame):
@@ -61,6 +61,13 @@ class TelegramPlayer(Player):
 
             await self.client.send_message(self.peer, msg)
 
+        elif isinstance(gameevent, evt.MissionChange):
+            mission = gameevent.mission
+            msg = (
+                "The game mission has been changed!\n\n"
+                f"**Mission {mission.mission_id}:** {mission.description}"
+            )
+            await self.client.send_message(self.peer, msg)
         else:
             await self.client.send_message(self.peer, gameevent.message)
 
