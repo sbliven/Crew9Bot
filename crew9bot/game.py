@@ -1,37 +1,41 @@
-from dataclasses import dataclass
-from enum import Enum, auto
-from abc import ABC, abstractmethod
-from typing import Dict, List, Set, TYPE_CHECKING, Union
-import random
-import math
 import asyncio
-import functools
-from io import StringIO
 import base64
+import functools
+import math
+import random
+from dataclasses import dataclass
+from enum import Enum
+from io import StringIO
+from typing import Dict, List, Set
 
-if TYPE_CHECKING:
-    from telethon.types import PeerUser  # type: ignore
+from . import events as evt
+from .player import Player
 
 
+@functools.total_ordering
 class Suite(Enum):
-    Rocket = "🚀"
     Blue = "🌀"
     Pink = "🌸"
     Green = "☘️"
     Yellow = "⭐️"
+    Rocket = "🚀"
 
     def __init__(self, icon):
         self.icon = icon
 
+    def __lt__(self, other: "Suite"):
+        return self.icon < other.icon
 
-@functools.total_ordering
+
 @dataclass
+@functools.total_ordering
 class Card:
     value: int
     suite: Suite
 
     def takes(self, other: "Card", lead: Suite):
-        """True if one card can "take" the second, given a particular suite for the trick."""
+        """True if one card can "take" the second, given a particular suite for
+        the trick."""
         if self.suite == other.suite:
             return self.value > other.value
         if self.suite is Suite.Rocket:
@@ -52,50 +56,6 @@ class Card:
         raise NotImplementedError
 
 
-class Player(ABC):
-    """Abstract Player interface"""
-
-    @abstractmethod
-    async def notify(self, gameevent, **kwargs):
-        "Notify player of game events that do not need a response"
-        ...
-
-    @abstractmethod
-    async def get_move(self, previous_moves: List[Card]) -> Card:
-        ...
-
-
-class TelegraphPlayer(Player):
-    peer: "PeerUser"
-    cards: Set[Card]
-
-    def __init__(self, peer: "PeerUser", client):
-        "Don't call this; use get_player instead"
-        self.peer = peer
-        self.client = client
-
-    async def notify(self, gameevent, **kwargs):
-        await self.client.send_message(self.peer, gameevent)
-
-    async def get_move(self, previous_moves: List[Card]) -> Card:
-        ...
-
-    async def get_name(self):
-        if not hasattr(self, "_name"):
-            you = await self.client.get_entity(self.peer)
-            self._name = you.first_name
-        return self._name
-
-
-_players: Dict[int, TelegraphPlayer] = {}
-
-
-def get_player(peer: "PeerUser", client):
-    if peer.user_id not in _players:
-        _players[peer.user_id] = TelegraphPlayer(peer, client)
-    return _players[peer.user_id]
-
-
 class Game:
     game_id: int
     players: List[Player]
@@ -103,54 +63,54 @@ class Game:
     hands: Dict[Player, Set[Card]]
 
     def __init__(self):
+        """Create a new game. Should normally be instantiated through the GameMaster"""
         self.game_id = random.getrandbits(5 * 8)  # multiple of 5 for base32 encoding
-        _games[self.game_id] = self
         self.players = []
 
     def get_game_id(self) -> str:
+        "Get the human-readable game id"
         return base64.b32encode(
             self.game_id.to_bytes(math.ceil(self.game_id.bit_length() / 8), "big")
         ).decode()
 
     @classmethod
     def decode_game_id(cls, id: str) -> int:
+        "Parse a human-readable game id back to a numeric hash"
         b = base64.b32decode(id.encode())
         return int.from_bytes(b, "big")
 
+    def __str__(self):
+        return self.get_game_id()
+
     async def join(self, player):
         tasks = [
-            asyncio.create_task(
-                p.notify(
-                    "Player Joined",
-                    player=player,
-                )
-            )
+            asyncio.create_task(p.notify(evt.PlayerJoined(player)))
             for i, p in enumerate(self.players)
         ]
-        tasks.append(asyncio.create_task(player.notify("You Joined", game=self)))
+        tasks.append(asyncio.create_task(player.notify(evt.JoinGame(self))))
 
         self.players.append(player)
 
         await asyncio.wait(tasks)
 
-    async def start(self):
+    async def begin(self):
         # deal cards
         self.deal()
         tasks = [
             asyncio.create_task(
-                player.notify(
-                    "Game started",
-                    hand=self.hands[player],
-                    commander=i == self.commander,
-                )
+                player.notify(evt.BeginGame(self.hands[player], i == self.commander))
             )
             for i, player in enumerate(self.players)
         ]
-        asyncio.wait(tasks)
+        await asyncio.wait(tasks)
 
     @classmethod
     def shuffle(kls) -> List[Card]:
-        cards = [Card(i, suite) for i in range(1, 10) for suite in Suite]
+        cards = [
+            Card(i, suite)
+            for suite in Suite
+            for i in range(1, 5 if suite is Suite.Rocket else 10)
+        ]
         random.shuffle(cards)
         return cards
 
@@ -181,15 +141,5 @@ class Game:
             s.write(names[-1])
         return s.getvalue()
 
-
-_games: Dict[int, Game] = {}
-
-
-def get_game(game_id: Union[int,str]):
-    if isinstance(game_id, str):
-        game_id = Game.decode_game_id(game_id)
-    return _games[game_id]
-
-
-def get_games():
-    return _games.values()
+    def get_game_url(self):
+        return f"https://t.me/Crew9Bot?start={self.get_game_id()}"

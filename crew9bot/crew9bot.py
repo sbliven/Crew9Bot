@@ -2,9 +2,15 @@
 import asyncio
 import configparser
 import logging
-from .game import Game, get_games, get_player, get_game
+from typing import TYPE_CHECKING, Dict, Union
 
-from telethon import TelegramClient, events, Button  # type: ignore
+from telethon import Button, TelegramClient, events  # type: ignore
+
+from .game import Game
+from .player import TelegramPlayer
+
+if TYPE_CHECKING:
+    from telethon.types import Peer  # type: ignore
 
 
 def default_config():
@@ -22,17 +28,20 @@ def load_config():
 
 
 class Crew9Bot:
+    _games: Dict[int, Game] = {}  # map game ids to Game
+    _players: Dict["Peer", "TelegramPlayer"] = {}  # map peers to Players
+
     def __init__(self):
         config = load_config()["crew9bot"]
         api_id = config["api_id"]
         api_hash = config["api_hash"]
         self.token = config["token"]
 
-        self.client = TelegramClient("Crew9Bot", api_id, api_hash)
+        self.client = TelegramClient("crew9bot", api_id, api_hash)
 
         # Public commands
         @self.client.on(events.NewMessage(pattern=r"/start"))
-        async def handler(event):
+        async def start_cmd(event):
             logging.info(f"Received {event.message.message}")
             fields = event.message.message.strip().split()
 
@@ -49,40 +58,40 @@ class Crew9Bot:
             if len(fields) > 1:
                 try:
                     logging.info(f"Auto-joining game {fields[1]}")
-                    game = get_game(fields[1])
-                    player = get_player(event.peer_id, self.client)
+                    game = self.get_game(fields[1])
+                    player = self.get_player(event.peer_id)
                     await game.join(player)
                 except Exception:
                     await event.respond(f"Error: I can't find game `{fields[1]}`")
 
         @self.client.on(events.NewMessage(pattern="/new"))
-        async def handler(event):
+        async def new_cmd(event):
             logging.info(f"Received {event.message.message}")
 
-            player = get_player(event.peer_id, self.client)
-            game = Game()
+            player = self.get_player(event.peer_id)
+            game = self.new_game()
 
-            await event.respond(f"A new game has started! [Join {game.get_game_id()}](https://t.me/Crew9Bot?start={game.get_game_id()})")
             await game.join(player)
 
         @self.client.on(events.NewMessage(pattern="/join"))
-        async def handler(event):
+        async def join_cmd(event):
             logging.info(f"Received {event.message.message}")
             fields = event.message.message.strip().split()
             if len(fields) != 2:
-                await event.respond("Error: Please provide a game ID.\n\nExample: `/join XXXXXXXX`")
+                await event.respond(
+                    "Error: Please provide a game ID.\n\nExample: `/join XXXXXXXX`"
+                )
             else:
                 try:
-                    game = get_game(fields[1])
-                    player = get_player(event.peer_id, self.client)
+                    game = self.get_game(fields[1])
+                    player = self.get_player(event.peer_id)
                     await game.join(player)
                 except Exception:
                     await event.respond(f"Error: I can't find game `{fields[1]}`")
 
-
         # Private commands
         @self.client.on(events.NewMessage(pattern="/clear"))
-        async def handler(event):
+        async def clear_cmd(event):
             logging.info(f"Received {event.message.message}")
 
             m = await event.respond("Clearing keyboard", buttons=Button.clear())
@@ -90,23 +99,22 @@ class Crew9Bot:
 
         # Tests & easter eggs
         @self.client.on(events.NewMessage(pattern="!ping"))
-        async def handler(event):
+        async def ping_cmd(event):
             # Say "!pong" whenever you send "!ping", then delete both messages
             m = await event.respond("!pong")
             await asyncio.sleep(5)
             await self.client.delete_messages(event.chat_id, [event.id, m.id])
 
         @self.client.on(events.NewMessage(pattern="hello|hi|hey"))
-        async def handler(event):
+        async def greeting(event):
             logging.info(f"Received {event.message.message}")
-            peer_id = event.peer_id
 
             you = await self.client.get_entity(event.peer_id)
 
             await event.reply(f"Hey, {you.first_name}!")
 
         @self.client.on(events.NewMessage(pattern="/info"))
-        async def handler(event):
+        async def info_cmd(event):
             logging.info(f"Received {event.message.message}")
             me = await self.client.get_me()
             await event.respond(f"```\nget_me -> {me.stringify()}\n```")
@@ -121,16 +129,60 @@ class Crew9Bot:
             await event.respond(f"```\nyou -> {you.stringify()}\n```")
 
         @self.client.on(events.NewMessage(pattern="/list"))
-        async def handler(event):
+        async def list_cmd(event):
             logging.info(f"Received {event.message.message}")
             msg = "Running games:\n\n"
 
-            game_descriptions = await asyncio.gather(*(game.get_description() for game in get_games()))
+            game_descriptions = await asyncio.gather(
+                *(game.get_description() for game in self.get_games())
+            )
 
             msg += "\n".join(f"- {game}" for game in game_descriptions)
 
             await event.respond(msg)
 
+        @self.client.on(events.NewMessage(pattern="/begin"))
+        async def begin_cmd(event):
+            logging.info(f"Received {event.message.message}")
+            player = self.get_player(event.peer_id)
+            if player.game:
+                game = player.game
+
+                await game.begin()
+            else:
+                event.respond(
+                    "Sorry, you're not in any games now! Use [/new](/new) "
+                    "or [/join](/join) to play."
+                )
 
     def start(self):
         self.client.start(bot_token=self.token)
+
+    def get_game(self, game_id: Union[int, str]):
+        "Get game by id. Works with either string or numeric ids."
+        if isinstance(game_id, str):
+            game_id = Game.decode_game_id(game_id)
+        return self._games[game_id]
+
+    def new_game(self):
+        game = Game()
+        self._games[game.game_id] = game
+        return game
+
+    def get_games(self):
+        "Get all active games"
+        return self._games.values()
+
+    @classmethod
+    def get_peer_id(cls, peer: "Peer"):
+        if hasattr(peer, "chat_id"):
+            return peer.chat_id
+        return peer.user_id
+
+    def get_player(self, peer: "Peer") -> TelegramPlayer:
+        "Get TelegramPlayer, or construct a new one if needed"
+        peer_id = self.get_peer_id(peer)
+        if peer_id not in self._players:
+            self._players[peer_id] = TelegramPlayer(peer, self.client)
+
+        return self._players[peer_id]
