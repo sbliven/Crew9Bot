@@ -17,6 +17,9 @@ class Suite(Enum):
     def __lt__(self, other: "Suite"):
         return self.icon < other.icon
 
+    def __str__(self):
+        return self.icon
+
 
 @dataclass
 @functools.total_ordering

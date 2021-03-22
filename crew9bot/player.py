@@ -84,4 +84,15 @@ class TelegramPlayer(Player):
 
     def format_cards(self):
         "Markdown description of the players cards"
-        return " ".join(str(c) for c in sorted(self.cards))
+
+        def add_hand(cards):
+            for i in range(1, len(cards)):
+                if cards[0].suite != cards[i].suite:
+                    return [cards[:i]] + add_hand(cards[i:])
+            return [cards]
+
+        cards = sorted(self.cards)
+        return "\n".join(
+            "- " + " ".join(str(c.value) for c in suite) + suite[0].suite.icon
+            for suite in add_hand(cards)
+        )
