@@ -2,30 +2,33 @@ import asyncio
 import base64
 import math
 import random
+from asyncio.exceptions import InvalidStateError
 from io import StringIO
 from typing import Dict, List, Set, Union
 
-from asyncio.exceptions import InvalidStateError
-
 from . import events as evt
-from .cards import Card, Suite
-from .player import Player
+from .cards import Card, Suite, shuffled_deck
 from .missions import Mission, all_missions
+from .player import Player
 
 
 class Game:
     game_id: int
     players: List[Player]
+    commander: int
     hands: Dict[Player, Set[Card]]
     mission: Mission
     started: bool
+    tasks: List[List[Card]]
 
     def __init__(self):
         """Create a new game. Should normally be instantiated through the GameMaster"""
         self.game_id = self.random_game_id()  # multiple of 5 for base32 encoding
         self.players = []
+        self.commander = 0
         self.mission = all_missions[1]
         self.started = False
+        self.tasks = []
 
     def get_game_id(self) -> str:
         "Get the human-readable game id"
@@ -37,9 +40,7 @@ class Game:
 
     @classmethod
     def encode_game_id(cls, id: int) -> str:
-        return base64.b32encode(
-            id.to_bytes(5, "big")
-        ).decode()
+        return base64.b32encode(id.to_bytes(5, "big")).decode()
 
     @classmethod
     def decode_game_id(cls, id: str) -> int:
@@ -64,34 +65,36 @@ class Game:
     async def begin(self):
         self.started = True
         # determine order
-        self.players = random.shuffle(self.players)
+        random.shuffle(self.players)
         # deal cards
         self.deal()
 
-
-        await asyncio.wait([
-            asyncio.create_task(
-                player.notify(evt.BeginGame(self.hands[player]))
-            )
-            for player in self.players
-        ])
+        await asyncio.wait(
+            [
+                asyncio.create_task(player.notify(evt.BeginGame(self.hands[player])))
+                for player in self.players
+            ]
+        )
 
         # choose tasks
-        tasks = self.make_tasks()
+        tasks = self.mission.make_tasks()
         # TODO bidding round; assign randomly for now
+        self.tasks = [[] for p in self.players]
+        notices = []
+        for i, task in enumerate(tasks):
+            player_num = i % len(self.players) + self.commander
+            self.tasks[player_num].append(task)
+            notices.extend(
+                asyncio.create_task(
+                    player.notify(evt.TaskAssigned(task, self.players[player_num]))
+                )
+                for player in self.players
+            )
 
-    @classmethod
-    def shuffle(kls) -> List[Card]:
-        cards = [
-            Card(i, suite)
-            for suite in Suite
-            for i in range(1, 5 if suite is Suite.Rocket else 10)
-        ]
-        random.shuffle(cards)
-        return cards
+        await asyncio.wait(notices)
 
     def deal(self):
-        cards = self.shuffle()
+        cards = shuffled_deck()
         handlen = len(cards) / len(self.players)
         self.hands = {
             player: cards[math.ceil(handlen * i) : math.ceil(handlen * (i + 1))]
@@ -121,15 +124,16 @@ class Game:
         return f"https://t.me/Crew9Bot?start={self.get_game_id()}"
 
     async def set_mission(self, mission: Union[int, Mission]):
-        if isinstance(mission, int):
-            mission = all_missions[mission]
-
         if self.started:
             raise InvalidStateError("Game already started")
+        if isinstance(mission, int):
+            self.mission = all_missions[mission]
+        else:
+            self.mission = mission
 
-        await asyncio.wait([
-            asyncio.create_task(
-                player.notify(evt.MissionChange(mission))
-            )
-            for player in self.players
-        ])
+        await asyncio.wait(
+            [
+                asyncio.create_task(player.notify(evt.MissionChange(self.mission)))
+                for player in self.players
+            ]
+        )

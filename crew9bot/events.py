@@ -1,6 +1,7 @@
-from crew9bot.missions import Mission
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Set
+
+from crew9bot.missions import Mission
 
 if TYPE_CHECKING:
     from .cards import Card
@@ -36,12 +37,10 @@ class PlayerJoined(Event):
 class BeginGame(Event):
     "Notifies the player that they have joined a game"
     cards: Set["Card"]
-    commander: bool
 
-    def __init__(self, cards, commander):
+    def __init__(self, cards):
         super().__init__("Game started")
         self.cards = cards
-        self.commander = commander
 
 
 class MissionChange(Event):
@@ -50,3 +49,13 @@ class MissionChange(Event):
     def __init__(self, mission):
         super().__init__("Mission changed")
         self.mission = mission
+
+
+class TaskAssigned(Event):
+    task: "Card"
+    player: "Player"
+
+    def __init__(self, task, player):
+        super().__init__("Card assigned")
+        self.task = task
+        self.player = player

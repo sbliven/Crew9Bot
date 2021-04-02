@@ -1,5 +1,3 @@
-from crew9bot import game
-import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, List, Optional, Set
 
@@ -22,6 +20,10 @@ class Player(ABC):
 
     @abstractmethod
     async def get_move(self, previous_moves: List["Card"]) -> "Card":
+        ...
+
+    @abstractmethod
+    async def get_name(self):
         ...
 
 
@@ -67,6 +69,13 @@ class TelegramPlayer(Player):
                 "The game mission has been changed!\n\n"
                 f"**Mission {mission.mission_id}:** {mission.description}"
             )
+            await self.client.send_message(self.peer, msg)
+
+        elif isinstance(gameevent, evt.TaskAssigned):
+            task = gameevent.task
+            player = gameevent.player
+            name = await player.get_name()
+            msg = f"{name} assigned task {task}"
             await self.client.send_message(self.peer, msg)
         else:
             await self.client.send_message(self.peer, gameevent.message)

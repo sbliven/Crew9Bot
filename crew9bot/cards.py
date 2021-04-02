@@ -1,6 +1,8 @@
 import functools
+import random
 from dataclasses import dataclass
 from enum import Enum
+from typing import List
 
 
 @functools.total_ordering
@@ -48,3 +50,19 @@ class Card:
         if isinstance(other, Card):
             return (self.suite, self.value) < (other.suite, other.value)
         raise NotImplementedError
+
+
+def deck() -> List[Card]:
+    "Sorted deck"
+    return [
+        Card(i, suite)
+        for suite in Suite
+        for i in range(1, 5 if suite is Suite.Rocket else 10)
+    ]
+
+
+def shuffled_deck() -> List[Card]:
+    "Shuffled deck"
+    cards = deck()
+    random.shuffle(cards)
+    return cards
