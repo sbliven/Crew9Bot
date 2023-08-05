@@ -1,4 +1,4 @@
-"""Main module."""
+"""Telegram bot to guess a number"""
 import asyncio
 import configparser
 import logging

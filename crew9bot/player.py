@@ -1,5 +1,6 @@
+import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional, Set
+from typing import TYPE_CHECKING, Iterable, List, Optional, Set
 
 from . import events as evt
 
@@ -19,7 +20,7 @@ class Player(ABC):
         ...
 
     @abstractmethod
-    async def get_move(self, previous_moves: List["Card"]) -> "Card":
+    async def get_move(self, previous_moves: Iterable["Card"]) -> "Card":
         ...
 
     @abstractmethod
@@ -86,7 +87,7 @@ class TelegramPlayer(Player):
             return f"[{self.game.get_game_id()}]({self.game.get_game_url()})"
         return None
 
-    async def get_move(self, previous_moves: List["Card"]) -> "Card":
+    async def get_move(self, previous_moves: Iterable["Card"]) -> "Card":
         ...
 
     async def get_name(self):

@@ -2,7 +2,7 @@
 import asyncio
 import configparser
 import logging
-from typing import TYPE_CHECKING, Dict, Union
+from typing import TYPE_CHECKING, Dict, Optional, Union
 
 from telethon import Button, TelegramClient, events  # type: ignore
 
@@ -11,6 +11,8 @@ from .player import TelegramPlayer
 
 if TYPE_CHECKING:
     from telethon.types import Peer  # type: ignore
+
+    from . import events as evt
 
 
 def default_config():
