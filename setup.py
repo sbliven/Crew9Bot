@@ -20,7 +20,7 @@ setup_requirements = [
     "pytest-runner",
 ]
 
-test_requirements = ["tox", "flake8", "coverage", "pytest>=3", "pytest-runner>=5"]
+test_requirements = ["tox", "flake8", "coverage", "pytest>=3", "pytest-runner>=5", "pytest-asyncio"]
 
 doc_requirements = ["Sphinx>1.8"]
 
