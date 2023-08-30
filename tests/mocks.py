@@ -23,6 +23,14 @@ class MockPlayer(Player):
         self.notices.append(gameevent)
         logging.info("Player {self.name} recieved {gameevent}")
 
+        if isinstance(gameevent, evt.YourTurn):
+            valid_moves = gameevent.valid_moves
+            callback = gameevent.callback
+
+            if self.moves:
+                move = self.moves.popleft()
+                callback(move)
+
     async def get_move(self, previous_moves: Iterable["Card"]) -> "Card":
         return self.moves.popleft()
 

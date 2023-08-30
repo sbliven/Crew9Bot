@@ -2,7 +2,7 @@ import functools
 import random
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Iterable
+from typing import Iterable, List
 
 
 @functools.total_ordering
@@ -51,8 +51,10 @@ class Card:
             return (self.suite, self.value) < (other.suite, other.value)
         raise NotImplementedError
 
+
 def hand_str(hand: Iterable[Card]) -> str:
-    return " ".join(map(str,sorted(hand)))
+    return " ".join(map(str, sorted(hand)))
+
 
 def deck() -> List[Card]:
     "Sorted deck"

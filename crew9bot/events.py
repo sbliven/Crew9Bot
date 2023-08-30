@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Set
+from typing import TYPE_CHECKING, Callable, List, Set
 
 from crew9bot.missions import Mission
 
@@ -34,8 +34,8 @@ class PlayerJoined(Event):
         self.player = player
 
 
-class BeginGame(Event):
-    "Notifies the player that they have joined a game"
+class CardsDelt(Event):
+    "Notifies the player that they have joined a game & been dealt cards"
     cards: Set["Card"]
 
     def __init__(self, cards):
@@ -59,3 +59,13 @@ class TaskAssigned(Event):
         super().__init__("Card assigned")
         self.task = task
         self.player = player
+
+
+class YourTurn(Event):
+    valid_moves: List["Card"]
+    callback: Callable[["Card"], None]
+
+    def __init__(self, valid_moves, callback):
+        super().__init__("Your turn")
+        self.valid_moves = valid_moves
+        self.callback = callback

@@ -55,7 +55,7 @@ class TelegramPlayer(Player):
             )
             await self.client.send_message(self.peer, msg)
 
-        elif isinstance(gameevent, evt.BeginGame):
+        elif isinstance(gameevent, evt.CardsDelt):
             self.cards = gameevent.cards
             msg = (
                 f"Game {self.game} is beginning!\n\n"

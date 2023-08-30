@@ -3,23 +3,27 @@ import base64
 import math
 import random
 from asyncio.exceptions import InvalidStateError
+from functools import partial
 from io import StringIO
-from typing import Dict, List, Set, Union
+from typing import Dict, List, Optional, Set, Union
 
 from . import events as evt
 from .cards import Card, Suite, shuffled_deck
 from .missions import Mission, all_missions
 from .player import Player
+from .util import permute_range
 
 
 class Game:
     game_id: int
     players: List[Player]
     commander: int
-    hands: Dict[Player, Set[Card]]
+    hands: List[List[Card]]
     mission: Mission
     started: bool
     tasks: List[List[Card]]
+    next_player: int
+    current_trick: List[int]
 
     def __init__(self):
         """Create a new game. Should normally be instantiated through the GameMaster"""
@@ -29,6 +33,8 @@ class Game:
         self.mission = all_missions[1]
         self.started = False
         self.tasks = []
+        self.next_player = self.commander
+        self.current_trick = []
 
     def get_game_id(self) -> str:
         "Get the human-readable game id"
@@ -67,18 +73,40 @@ class Game:
         # determine order
         random.shuffle(self.players)
         # deal cards
-        self.deal()
+        await self.deal()
 
+        # choose tasks
+        await self.assign_tasks()
+
+        # Start hand
+        self.next_player = self.commander
+        self.start_turn()
+
+    async def deal(self):
+        cards = shuffled_deck()
+        handlen = len(cards) / len(self.players)
+        # TODO track dealer or randomize?
+        self.hands = [
+            sorted(cards[math.ceil(handlen * i) : math.ceil(handlen * (i + 1))])
+            for i in range(len(self.players))
+        ]
+        commander_card = Card(4, Suite.Rocket)
+        for i in range(len(self.players)):
+            if commander_card in self.hands[i]:
+                self.commander = i
+                break
+
+        # Notify players of hands
         await asyncio.wait(
             [
-                asyncio.create_task(player.notify(evt.BeginGame(self.hands[player])))
-                for player in self.players
+                asyncio.create_task(player.notify(evt.CardsDelt(self.hands[i])))
+                for i, player in enumerate(self.players)
             ]
         )
 
-        # choose tasks
+    async def assign_tasks(self):
         tasks = self.mission.make_tasks()
-        # TODO bidding round; assign randomly for now
+        # TODO bidding round; assign tasks randomly for now
         self.tasks = [[] for p in self.players]
         notices = []
         for i, task in enumerate(tasks):
@@ -90,21 +118,49 @@ class Game:
                 )
                 for player in self.players
             )
-
         await asyncio.wait(notices)
 
-    def deal(self):
-        cards = shuffled_deck()
-        handlen = len(cards) / len(self.players)
-        self.hands = {
-            player: cards[math.ceil(handlen * i) : math.ceil(handlen * (i + 1))]
-            for i, player in enumerate(self.players)
-        }
-        commander_card = Card(4, Suite.Rocket)
-        for i in range(len(self.players)):
-            if commander_card in self.hands[self.players[i]]:
-                self.commander = i
-                break
+    async def start_turn(self):
+        current_trick = []
+
+        def turn_callback(card):
+            # TODO validate play
+            current_trick.append(card)
+
+        trump = None
+        player_order = list(permute_range(self.next_player, len(self.players)))
+
+        valid = self.hands[self.next_player]
+        try:
+            await self.players[self.next_player].notify(
+                evt.YourTurn(valid, turn_callback)
+            )
+
+            assert len(current_trick) == 1
+        except ValueError:
+            pass  # TODO
+
+        trump = card.suite
+        # TODO notify trump?
+
+        for player in player_order[1:]:
+            valid = [card for card in self.hands[player] if card.suite == trump]
+            if not valid:
+                valid = self.hands[player]
+            try:
+                await self.players[player].notify(evt.YourTurn(valid, turn_callback))
+
+                assert (
+                    len(current_trick)
+                    == player + 1 + len(self.players) - self.next_player
+                )
+            except ValueError:
+                pass  # TODO
+
+        assert len(self.current_trick) == len(self.players)
+        assert not any(t is None for t in self.current_trick)
+
+        winner = get_winner(self.current_trick, s)
 
     async def get_description(self):
         s = StringIO()
