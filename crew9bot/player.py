@@ -21,10 +21,6 @@ class Player(ABC):
         ...
 
     @abstractmethod
-    async def get_move(self, previous_moves: Iterable["Card"]) -> "Card":
-        ...
-
-    @abstractmethod
     async def get_name(self) -> str:
         ...
 
@@ -89,10 +85,6 @@ class TelegramPlayer(Player):
         if self.game:
             return f"[{self.game.get_game_id()}]({self.game.get_game_url()})"
         return None
-
-    async def get_move(self, previous_moves: Iterable["Card"]) -> "Card":
-        assert self.game is not None
-        # TODO
 
     async def get_name(self) -> str:
         if not hasattr(self, "_name"):

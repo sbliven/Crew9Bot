@@ -3,7 +3,7 @@ import itertools
 import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, List, Literal
+from typing import TYPE_CHECKING, Any, Iterable, List, Literal
 
 from .cards import Card, deck
 from .events import TasksAssigned
@@ -36,8 +36,14 @@ class Mission(ABC):
 
     @abstractmethod
     async def bid(self, players: List["Player"], commander: int) -> None:
-        """Called before the hand starts to assign tasks"""
+        """Called before the round starts to assign tasks"""
         ...
+
+    async def communicate(
+        self, players: List["Player"], remaining: List[Iterable["Card"]], handnum: int
+    ) -> None:
+        """Called before each hand to allow communication"""
+        pass
 
     def __eq__(self, other: Any) -> bool:
         """Missions are equal if they represent the same general type
@@ -98,14 +104,15 @@ class RandomMission(Mission):
     def get_status(self, played_cards: List[List[Card]]) -> "State":
         """Get the current win/lose/ongoing status"""
         won = True  # all tasks successful
-        for owner, task in enumerate(self.tasks):
-            task_finished = False
-            for player, cards in enumerate(played_cards):
-                if task in cards:
-                    if owner != player:
-                        return "lose"
-                    task_finished = True
-            won = won and task_finished
+        for owner in range(len(self.tasks)):
+            for task in self.tasks[owner]:
+                task_finished = False
+                for player, cards in enumerate(played_cards):
+                    if task in cards:
+                        if owner != player:
+                            return "lose"
+                        task_finished = True
+                won = won and task_finished
 
         return "win" if won else "ongoing"
 

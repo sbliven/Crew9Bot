@@ -62,11 +62,33 @@ class TasksAssigned(Event):
 
 class YourTurn(Event):
     valid_moves: List["Card"]
-    callback: Callable[["Card"], None]
 
-    def __init__(
-        self, valid_moves: List["Card"], callback: Callable[["Card"], None]
-    ) -> None:
+    def __init__(self, valid_moves: List["Card"]) -> None:
         super().__init__("Your turn")
         self.valid_moves = valid_moves
-        self.callback = callback
+
+
+class CardPlayed(Event):
+    card: "Card"
+    player: "Player"
+
+    def __init__(self, card: "Card", player: "Player"):
+        super().__init__("{player} played {card}")
+        self.card = card
+        self.player = player
+
+
+class HandWon(Event):
+    player: "Player"
+
+    def __init__(self, player: "Player"):
+        super().__init__("{player} won the hand")
+        self.player = player
+
+
+class GameOver(Event):
+    won: bool
+
+    def __init__(self, won: bool):
+        super().__init__("Mission successful!" if won else "Mission Failed")
+        self.won = won

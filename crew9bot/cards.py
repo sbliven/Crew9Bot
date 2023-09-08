@@ -8,6 +8,9 @@ from typing import Any, Dict, Iterable, List, Optional, Type, TypeVar, Union, ov
 T = TypeVar("T", bound="Card")
 
 
+DECK_SIZE = 40
+
+
 @functools.total_ordering
 class Suite(Enum):
     Blue = "🌀"
@@ -58,8 +61,7 @@ class Card:
             self.value = value
 
     def takes(self, other: "Card", lead: Suite) -> bool:
-        """True if one card can "take" the second, given a particular suite for
-        the trick."""
+        """True if this card can "take" the second, given a particular suite for the trick."""
         if self.suite == other.suite:
             return self.value > other.value
         if self.suite is Suite.Rocket:
@@ -74,10 +76,21 @@ class Card:
     def __str__(self) -> str:
         return f"{self.value}{self.suite.icon}"
 
+    def __repr__(self) -> str:
+        return f"{self.__class__}({str(self)})"
+
     def __lt__(self, other: Any) -> bool:
         if isinstance(other, Card):
             return (self.suite, self.value) < (other.suite, other.value)
         raise NotImplementedError
+
+    def __hash__(self) -> int:
+        return hash((self.value, self.suite))
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, self.__class__):
+            return False
+        return self.value == other.value and self.suite == other.suite
 
     @classmethod
     def format_hand(cls: Type[T], hand: Iterable[T], markdown: bool = False) -> str:

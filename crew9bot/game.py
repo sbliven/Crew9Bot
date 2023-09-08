@@ -19,10 +19,10 @@ import random
 from asyncio.exceptions import InvalidStateError
 from functools import partial
 from io import StringIO
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from . import events as evt
-from .cards import Card, Suite, shuffled_deck
+from .cards import DECK_SIZE, Card, Suite, shuffled_deck
 from .missions import ImpossibleMission, Mission, create_mission
 from .player import Player
 from .util import permute_range
@@ -60,6 +60,10 @@ class Game:
         self.state = "waiting"
         self.next_player = self.commander
         self.played_cards = []
+
+    @property
+    def n_players(self) -> int:
+        return len(self.players)
 
     def get_game_id(self) -> str:
         "Get the human-readable game id"
@@ -101,11 +105,10 @@ class Game:
         if self.state != "waiting":
             raise InvalidStateError(f"Cannot start game. State: {self.state}")
 
-        self.state = "deal"
-
         # determine order of play
         if len(self.history) == 0:
             random.shuffle(self.players)
+
         # deal cards
         await self.deal()
 
@@ -114,18 +117,25 @@ class Game:
 
         # Start hand
         self.next_player = self.commander
+
+        await self.communicate()
+
         await self.start_turn()
 
     async def deal(self) -> None:
+        if self.state != "waiting":
+            raise InvalidStateError(f"Cannot deal. State: {self.state}")
+
+        self.state = "deal"
         cards = shuffled_deck()
-        handlen = len(cards) / len(self.players)
+        handlen = len(cards) / self.n_players
         # TODO track dealer or randomize?
         self.hands = [
             sorted(cards[math.ceil(handlen * i) : math.ceil(handlen * (i + 1))])
-            for i in range(len(self.players))
+            for i in range(self.n_players)
         ]
         commander_card = Card(4, Suite.Rocket)
-        for i in range(len(self.players)):
+        for i in range(self.n_players):
             if commander_card in self.hands[i]:
                 self.commander = i
                 break
@@ -139,51 +149,180 @@ class Game:
         )
 
     async def assign_tasks(self) -> None:
+        if self.state != "deal":
+            raise InvalidStateError(f"Cannot assign tasks. State: {self.state}")
+
+        self.state = "bid"
         await self.mission.bid(self.players, self.commander)
 
+    async def communicate(self) -> None:
+        if self.state not in ("bid", "turn"):
+            raise InvalidStateError(f"Cannot start communication. State: {self.state}")
+
+        self.state = "communicate"
+
+        handnum = len(self.played_cards[0])
+
+        remaining: List[Iterable[Card]] = [
+            set(self.hands[p]) - set(self.played_cards[p])
+            for p in range(self.n_players)
+        ]
+        await self.mission.communicate(self.players, remaining, handnum)
+
     async def start_turn(self) -> None:
-        current_trick: List[Card] = []
+        "Notify the next player it is their turn"
+        if self.state not in ("communicate", "turn"):
+            raise InvalidStateError(f"Cannot start turn. State: {self.state}")
 
-        def turn_callback(card: Card) -> None:
-            # TODO validate play
-            current_trick.append(card)
-
-        player_order = list(permute_range(self.next_player, len(self.players)))
+        self.state = f"turn"
 
         valid = self.hands[self.next_player]
-        try:
-            await self.players[self.next_player].notify(
-                evt.YourTurn(valid, turn_callback)
+
+        await self.players[self.next_player].notify(evt.YourTurn(valid))
+
+    def _current_hand(self) -> Tuple[Optional[List[Optional[Card]]], int]:
+        """Get cards from the most recent (possibly partial) hand
+
+        Returns:
+        - Most recent hand, with None for any missing players
+        - index of the player that lead the hand
+
+
+        """
+        # [B]
+        # [] next_player
+        # []
+        # [A] lead
+        handnum = len(self.played_cards[self.next_player])
+
+        # lead is index of the first player
+        for lead in permute_range(self.next_player + 1, self.n_players):
+            if len(self.played_cards[lead]) == handnum + 1:
+                break
+        if lead == self.next_player:  # complete hand
+            handnum -= 1
+        if handnum < 0:
+            return None, lead
+        return [
+            self.played_cards[i][handnum]
+            if len(self.played_cards[i]) == handnum + 1
+            else None
+            for i in range(self.n_players)
+        ], lead
+
+    def _get_valid(self, player: int, lead: Optional["Suite"] = None) -> List[Card]:
+        "Get all valid cards for the given player"
+        if lead is not None:
+            return [card for card in self.hands[player] if card.suite == lead]
+        return self.hands[player]
+
+    def _current_winner(self) -> int:
+        "Index of the player currently winning the hand"
+        hand, lead = self._current_hand()
+        if hand is None:
+            raise InvalidStateError("No cards played")
+        lead_card = hand[lead]
+        assert lead_card is not None
+        lead_suite = lead_card.suite
+        winner = lead
+        winning_card: Card = lead_card
+
+        for p in permute_range(lead + 1, self.n_players):
+            card = hand[p]
+            if p == self.next_player or card is None:
+                break
+            if card.takes(winning_card, lead_suite):
+                winner = p
+                winning_card = card
+
+        return winner
+
+    async def play(self, player: Player, card: Card) -> None:
+        if self.state != "turn":
+            raise InvalidStateError(f"Cannot play turn. State: {self.state}")
+
+        if player is not self.players[self.next_player]:
+            raise InvalidStateError(
+                f"Out of turn! Next player is {self.players[self.next_player]}"
             )
 
-            assert len(current_trick) == 1
-        except ValueError:
-            pass  # TODO
+        # Verify card is valid
+        hand, lead_player = self._current_hand()
 
-        lead = current_trick[0].suite
-        # TODO notify trump?
+        if hand:
+            lead_card = hand[lead_player]
+            assert lead_card is not None
+            lead_suit = lead_card.suite
+        else:
+            lead_suit = None
 
-        for player in player_order[1:]:
-            valid = [card for card in self.hands[player] if card.suite == lead]
-            if not valid:
-                valid = self.hands[player]
-            try:
-                await self.players[player].notify(evt.YourTurn(valid, turn_callback))
+        valid = self._get_valid(self.next_player, lead_suit)
+        if not card in valid:
+            raise ValueError("Card not a valid play")
 
-                assert (
-                    len(current_trick)
-                    == player + 1 + len(self.players) - self.next_player
+        # Accept play
+        self.played_cards[self.next_player].append(card)
+
+        await asyncio.wait(
+            [
+                asyncio.create_task(
+                    self.players[i].notify(evt.CardPlayed(card, player))
                 )
-            except ValueError:
-                pass  # TODO
+                for i in range(self.n_players)
+                if i != player
+            ]
+        )
 
-        for i, card in zip(player_order, current_trick):
-            self.played_cards[i].append(card)
+        # Check if hand finished
+        if hand is not None and lead_player == self.next_player:
+            winner = self._current_winner()
+            self.next_player = winner
 
-        assert len(current_trick) == len(self.players)
-        assert not any(t is None for t in current_trick)
+            await asyncio.wait(
+                [
+                    asyncio.create_task(
+                        self.players[i].notify(evt.HandWon(self.players[winner]))
+                    )
+                    for i in range(self.n_players)
+                ]
+            )
 
-        # winner = get_winner(current_trick, s)
+            status = self.mission.get_status(self.played_cards)
+
+            if status == "win":
+                await self.win()
+                return
+            elif status == "lose":
+                await self.lose()
+                return
+            assert status == "ongoing"
+
+            # Check if no more hands to play
+            if DECK_SIZE - len(self.played_cards[0]) * self.n_players < self.n_players:
+                await self.lose()
+                return
+        else:
+            self.next_player = (self.next_player + 1) % self.n_players
+
+        await self.start_turn()
+
+    async def win(self) -> None:
+        await asyncio.wait(
+            [
+                asyncio.create_task(self.players[i].notify(evt.GameOver(True)))
+                for i in range(self.n_players)
+            ]
+        )
+
+        # TODO increment mission
+
+    async def lose(self) -> None:
+        await asyncio.wait(
+            [
+                asyncio.create_task(self.players[i].notify(evt.GameOver(False)))
+                for i in range(self.n_players)
+            ]
+        )
 
     async def get_description(self) -> str:
         s = StringIO()
