@@ -1,6 +1,7 @@
 """Console script for crew9bot."""
 import logging
 import sys
+from typing import List, Optional
 
 import click
 
@@ -8,7 +9,7 @@ from . import crew9bot
 
 
 @click.command()
-def main(args=None):
+def main(args: Optional[List[str]] = None) -> int:
     """Console script for crew9bot."""
     # config = load_config()
     # for key in config['crew9bot']:

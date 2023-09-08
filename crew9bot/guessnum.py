@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from telethon.types import Peer  # type: ignore
 
 
-def default_config():
+def default_config() -> configparser.ConfigParser:
     config = configparser.ConfigParser()
     config["crew9bot"] = {"api_id": "ADD_APP_ID"}
     config["crew9bot"] = {"api_hash": "ADD_APP_HASH"}
@@ -22,20 +22,20 @@ def default_config():
     return config
 
 
-def load_config():
+def load_config() -> configparser.ConfigParser:
     config = default_config()
     config.read("crew9bot.ini")
     return config
 
 
 class State:
-    async def new_message(self, event) -> "State":
+    async def new_message(self, event: events.Event) -> "State":
         await event.reply("I'm not sure what that means.")
         return self
 
 
 class NewGame(State):
-    async def new_message(self, event):
+    async def new_message(self, event: events.Event) -> BoundedGuess:
         # keyboard = ReplyKeyboardMarkup()
         await event.respond(
             "Think of an integer between 0 and 1000!",
@@ -49,12 +49,12 @@ class BoundedGuess(State):
     upper: int
     guess: int
 
-    def __init__(self, lower, upper):
+    def __init__(self, lower: int, upper: int) -> None:
         self.lower = lower
         self.upper = upper
         self.guess = (lower + upper) // 2
 
-    async def new_message(self, event):
+    async def new_message(self, event: events.Event) -> State:
         if event.message.message == "Yes":
             self.lower = self.guess
             self.guess = (self.lower + self.upper) // 2
@@ -93,15 +93,17 @@ class BoundedGuess(State):
             )
             return self
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"BoundedGuess({self.lower},{self.upper})"
 
 
 class FinalGuess(State):
-    def __init__(self, guess):
+    guess: int
+
+    def __init__(self, guess: int) -> None:
         self.guess = guess
 
-    async def new_message(self, event):
+    async def new_message(self, event: events.Event) -> BoundedGuess:
         if event.message.message == "Yes":
             await event.respond("Yay, I guessed it! 🎉\n\nPlay again?")
         elif event.message.message == "No":
@@ -120,7 +122,7 @@ class FinalGuess(State):
 class GuessNumBot:
     _games: Dict["Peer", State] = {}  # map game ids to Game
 
-    def __init__(self):
+    def __init__(self) -> None:
         config = load_config()["crew9bot"]
         api_id = config["api_id"]
         api_hash = config["api_hash"]
@@ -130,7 +132,7 @@ class GuessNumBot:
 
         # Public commands
         @self.client.on(events.NewMessage(pattern=r"/start"))
-        async def start_cmd(event):
+        async def start_cmd(event: events.Event) -> None:
             peer = event.peer_id
             logging.info(
                 f"Received {event.message.message} from {self.get_peer_id(peer)}"
@@ -144,7 +146,7 @@ class GuessNumBot:
             self.set_game(peer, await game.new_message(event))
 
         @self.client.on(events.NewMessage())
-        async def transition(event):
+        async def transition(event: events.Event) -> None:
             if event.message.message.startswith("/start"):
                 return  # handled already
             peer = event.peer_id
@@ -161,7 +163,7 @@ class GuessNumBot:
         # Private commands
 
         @self.client.on(events.NewMessage(pattern="/inline"))
-        async def greeting(event):
+        async def greeting(event: events.Event) -> None:
             logging.info(f"Received {event.message.message}")
 
             btns = [
@@ -173,13 +175,13 @@ class GuessNumBot:
             await event.respond(f"This is an inline keyboard!", buttons=[btns])
 
         @self.client.on(events.CallbackQuery())
-        async def btnPush(event):
+        async def btnPush(event: events.Event) -> None:
             logging.info(f"Callback {event.stringify()}")
             data = event.query.data
             await event.reply(data.decode())
 
         @self.client.on(events.NewMessage(pattern="/custom"))
-        async def custom(event):
+        async def custom(event: events.Event) -> None:
             logging.info(f"Received {event.message.message}")
 
             btns = [
@@ -191,35 +193,38 @@ class GuessNumBot:
             await event.respond(f"This is an inline keyboard!", buttons=[btns])
 
         @self.client.on(events.NewMessage(pattern="/clear"))
-        async def clear_cmd(event):
+        async def clear_cmd(event: events.Event) -> None:
             logging.info(f"Received {event.message.message}")
 
             m = await event.respond("Clearing keyboard", buttons=Button.clear())
             # await self.client.delete_messages(event.chat_id, [event.id, m.id])
 
-    def start(self):
+    def start(self) -> None:
         self.client.start(bot_token=self.token)
 
-    def get_game(self, peer: "Peer"):
+    def get_game(self, peer: "Peer") -> State:
         "Get or create game by peer"
-        peer_id = self.get_peer_id(peer)
-        return self._games.get(peer_id)
+        # peer_id = self.get_peer_id(peer)
+        assert peer in self._games
+        return self._games[peer]
 
-    def new_game(self, peer: "Peer"):
+    def new_game(self, peer: "Peer") -> State:
         "Creates a new game. Call new_message to start it!"
         peer_id = self.get_peer_id(peer)
         game = NewGame()
         self._games[peer_id] = game
         return game
 
-    def set_game(self, peer: "Peer", game: State):
+    def set_game(self, peer: "Peer", game: State) -> None:
         peer_id = self.get_peer_id(peer)
         self._games[peer_id] = game
 
     @classmethod
-    def get_peer_id(cls, peer: "Peer"):
+    def get_peer_id(cls, peer: "Peer") -> int:
         if hasattr(peer, "chat_id"):
+            assert isinstance(peer.chat_id, int)
             return peer.chat_id
+        assert isinstance(peer.user_id, int)
         return peer.user_id
 
 

@@ -1,10 +1,11 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Iterable, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Set
 
 from . import events as evt
 
 if TYPE_CHECKING:
+    from telethon import TelegramClient  # type: ignore
     from telethon.types import Peer  # type: ignore
 
     from .cards import Card
@@ -15,7 +16,7 @@ class Player(ABC):
     """Abstract Player interface"""
 
     @abstractmethod
-    async def notify(self, gameevent: evt.Event, **kwargs):
+    async def notify(self, gameevent: evt.Event) -> None:
         "Notify player of game events that do not need a response"
         ...
 
@@ -24,21 +25,23 @@ class Player(ABC):
         ...
 
     @abstractmethod
-    async def get_name(self):
+    async def get_name(self) -> str:
         ...
 
 
 class TelegramPlayer(Player):
     peer: "Peer"
-    cards: Set["Card"]
+    client: "TelegramClient"
+    cards: Iterable["Card"]
     game: Optional["Game"]
 
-    def __init__(self, peer: "Peer", client):
+    def __init__(self, peer: "Peer", client: "TelegramClient") -> None:
         "Don't call this; use get_player instead"
         self.peer = peer
         self.client = client
+        self.game = None
 
-    async def notify(self, gameevent: evt.Event, **kwargs):
+    async def notify(self, gameevent: evt.Event) -> None:
         if isinstance(gameevent, evt.JoinGame):
             self.game = gameevent.game
             name = await self.get_name()
@@ -72,37 +75,39 @@ class TelegramPlayer(Player):
             )
             await self.client.send_message(self.peer, msg)
 
-        elif isinstance(gameevent, evt.TaskAssigned):
-            task = gameevent.task
+        elif isinstance(gameevent, evt.TasksAssigned):
+            tasks = gameevent.tasks
             player = gameevent.player
             name = await player.get_name()
-            msg = f"{name} assigned task {task}"
+            msg = f"{name} assigned tasks {' '.join(map(str,tasks))}"
             await self.client.send_message(self.peer, msg)
         else:
             await self.client.send_message(self.peer, gameevent.message)
 
-    def get_game_link(self):
+    def get_game_link(self) -> Optional[str]:
         "Markdown code for the game link"
         if self.game:
             return f"[{self.game.get_game_id()}]({self.game.get_game_url()})"
         return None
 
     async def get_move(self, previous_moves: Iterable["Card"]) -> "Card":
-        ...
+        assert self.game is not None
+        # TODO
 
-    async def get_name(self):
+    async def get_name(self) -> str:
         if not hasattr(self, "_name"):
             you = await self.client.get_entity(self.peer)
             if hasattr(you, "first_name"):
                 self._name = you.first_name
             else:
                 self._name = you.title
+        assert isinstance(self._name, str)
         return self._name
 
-    def format_cards(self):
+    def format_cards(self) -> str:
         "Markdown description of the players cards"
 
-        def add_hand(cards):
+        def add_hand(cards: List[Card]) -> List[List[Card]]:
             for i in range(1, len(cards)):
                 if cards[0].suite != cards[i].suite:
                     return [cards[:i]] + add_hand(cards[i:])

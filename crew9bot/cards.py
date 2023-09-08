@@ -1,8 +1,11 @@
 import functools
 import random
+import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, List
+from typing import Any, Dict, Iterable, List, Optional, Type, TypeVar, Union, overload
+
+T = TypeVar("T", bound="Card")
 
 
 @functools.total_ordering
@@ -13,13 +16,13 @@ class Suite(Enum):
     Yellow = "⭐️"
     Rocket = "🚀"
 
-    def __init__(self, icon):
+    def __init__(self, icon: str) -> None:
         self.icon = icon
 
-    def __lt__(self, other: "Suite"):
+    def __lt__(self, other: "Suite") -> bool:
         return self.icon < other.icon
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.icon
 
 
@@ -29,7 +32,32 @@ class Card:
     value: int
     suite: Suite
 
-    def takes(self, other: "Card", lead: Suite):
+    _card_re = re.compile(rf'([0-9])({"|".join(s.value for s in Suite)})')
+
+    @overload
+    def __init__(self, value: int, suite: Suite) -> None:
+        ...
+
+    @overload
+    def __init__(self, value: str, suite: None = None) -> None:
+        ...
+
+    def __init__(self, value: Union[int, str], suite: Optional[Suite] = None) -> None:
+        """Create a Card, either from a value/suite pair or from a string representation"""
+        if suite is None:
+            assert isinstance(value, str)
+            match = self._card_re.match(value)
+            if not match:
+                raise ValueError("Invalid card")
+
+            self.suite = Suite(match.group(2))
+            self.value = int(match.group(1))
+        else:
+            assert isinstance(value, int)
+            self.suite = suite
+            self.value = value
+
+    def takes(self, other: "Card", lead: Suite) -> bool:
         """True if one card can "take" the second, given a particular suite for
         the trick."""
         if self.suite == other.suite:
@@ -43,17 +71,41 @@ class Card:
         # No ordering between non-lead cards
         return False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.value}{self.suite.icon}"
 
-    def __lt__(self, other):
+    def __lt__(self, other: Any) -> bool:
         if isinstance(other, Card):
             return (self.suite, self.value) < (other.suite, other.value)
         raise NotImplementedError
 
+    @classmethod
+    def format_hand(cls: Type[T], hand: Iterable[T], markdown: bool = False) -> str:
+        """String representation of the cards.
 
-def hand_str(hand: Iterable[Card]) -> str:
-    return " ".join(map(str, sorted(hand)))
+        Defaults to a one-line space-separated list.
+
+        If markdown, gives a markdown list with one item per suite
+        """
+        if not markdown:
+            return " ".join(map(str, sorted(hand)))
+        return "\n".join(
+            f"- {cls.format_hand(hand, False)}"
+            for suite, cards in by_suite(hand).items()
+        )
+
+    @classmethod
+    def parse_hand(cls: Type[T], hand: str) -> List[T]:
+        return [cls(s) for s in hand.split(" ") if s]
+
+
+def by_suite(hand: Iterable[Card]) -> Dict[Suite, List[Card]]:
+    "Divide cards by suite"
+    suites: Dict[Suite, List[Card]] = {s: [] for s in Suite}
+    for card in hand:
+        suites[card.suite].append(card)
+
+    return suites
 
 
 def deck() -> List[Card]:

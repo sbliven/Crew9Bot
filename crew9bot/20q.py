@@ -1,3 +1,5 @@
+# type: ignore
+
 """Telegram bot to play 20 questions given a fixed decision tree."""
 import asyncio
 import configparser
@@ -14,7 +16,7 @@ if TYPE_CHECKING:
     from telethon.types import Peer  # type: ignore
 
 
-def default_config():
+def default_config() -> configparser.ConfigParser:
     config = configparser.ConfigParser()
     config["crew9bot"] = {"api_id": "ADD_APP_ID"}
     config["crew9bot"] = {"api_hash": "ADD_APP_HASH"}
@@ -22,7 +24,7 @@ def default_config():
     return config
 
 
-def load_config():
+def load_config() -> configparser.ConfigParser:
     config = default_config()
     config.read("crew9bot.ini")
     return config
@@ -33,22 +35,24 @@ class QuestionTree:
     question: str
     answers: Dict[str, Union["QuestionTree", "Answer"]]
 
-    def __init__(self, n, question, answers):
+    def __init__(
+        self, n: int, question: str, answers: Dict[str, Union["QuestionTree", "Answer"]]
+    ) -> None:
         self.n = 1
         self.question = question
         self.answers = answers
 
-    def guess(self, answer):
+    def guess(self, answer: str) -> None:
         pass
 
 
 @dataclass
 class Answer(QuestionTree):
-    def __init__(self, answer):
-        self.question = f"Is it a {answer}?"
+    def __init__(self, answer: str) -> None:
+        super().__init__(f"Is it a {answer}?", {"Yes", "No"})
 
 
-def initial_tree():
+def initial_tree() -> QuestionTree:
     return QuestionTree(
         "Is it animal, mineral, or vegetable?",
         {
@@ -63,7 +67,7 @@ class Q20Bot:
     _games: Dict[int, Game] = {}  # map game ids to Game
     _players: Dict["Peer", "TelegramPlayer"] = {}  # map peers to Players
 
-    def __init__(self):
+    def __init__(self) -> None:
         config = load_config()["crew9bot"]
         api_id = config["api_id"]
         api_hash = config["api_hash"]
@@ -212,16 +216,16 @@ class Q20Bot:
             else:
                 await event.respond("usage: [/mission](/mission) [mission number]")
 
-    def start(self):
+    def start(self) -> None:
         self.client.start(bot_token=self.token)
 
-    def get_game(self, game_id: Union[int, str]):
+    def get_game(self, game_id: Union[int, str]) -> Game:
         "Get game by id. Works with either string or numeric ids."
         if isinstance(game_id, str):
             game_id = Game.decode_game_id(game_id)
         return self._games[game_id]
 
-    def new_game(self):
+    def new_game(self) -> Game:
         game = Game()
         self._games[game.game_id] = game
         return game

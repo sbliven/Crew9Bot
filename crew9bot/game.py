@@ -1,3 +1,17 @@
+"""Tracks a Crew9 game
+
+Games progress through the following states:
+
+1. *waiting*. Players can join. Mission can be set. Transitions on begin()
+2. *deal*. Assigns hands. Transitions immediately
+3. *bid*. Mission-specific task assignment.
+4. *communicate*. Communicate, if allowed by mission
+5. *turn[X]*. Waiting for player X to play. Transition after all players play
+6. *check_hand*. Check if mission is fullfilled. If not, start the next hand with turn[X]
+7. *end*. End of the round. Update the mission, then transition to waiting.
+
+"""
+
 import asyncio
 import base64
 import math
@@ -5,36 +19,47 @@ import random
 from asyncio.exceptions import InvalidStateError
 from functools import partial
 from io import StringIO
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 from . import events as evt
 from .cards import Card, Suite, shuffled_deck
-from .missions import Mission, all_missions
+from .missions import ImpossibleMission, Mission, create_mission
 from .player import Player
 from .util import permute_range
 
 
 class Game:
-    game_id: int
+    #: binary game ID
+    game_id: int  # TODO should be bytes
+    #: Players by order of play
     players: List[Player]
+    #: Commander for this game
     commander: int
+    #: Sorted list of remaining cards for each player
     hands: List[List[Card]]
+    #: Current mission
     mission: Mission
-    started: bool
-    tasks: List[List[Card]]
+    #: Mission history. Tuple of mission numbers and if it was won
+    history: List[Tuple[int, bool]]
+    # Current state
+    state: str
+    #: next player
     next_player: int
-    current_trick: List[int]
+    #: History of all cards played this round.
+    #: Indexed [player][hand number]
+    played_cards: List[List[Card]]
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Create a new game. Should normally be instantiated through the GameMaster"""
         self.game_id = self.random_game_id()  # multiple of 5 for base32 encoding
         self.players = []
         self.commander = 0
-        self.mission = all_missions[1]
-        self.started = False
-        self.tasks = []
+        self.hands = []
+        self.mission = ImpossibleMission()
+        self.history = []
+        self.state = "waiting"
         self.next_player = self.commander
-        self.current_trick = []
+        self.played_cards = []
 
     def get_game_id(self) -> str:
         "Get the human-readable game id"
@@ -54,10 +79,13 @@ class Game:
         b = base64.b32decode(id.encode())
         return int.from_bytes(b, "big")
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.get_game_id()
 
-    async def join(self, player):
+    async def join(self, player: Player) -> None:
+        if self.state != "waiting":
+            raise InvalidStateError(f"Cannot join game. State: {self.state}")
+
         tasks = [
             asyncio.create_task(p.notify(evt.PlayerJoined(player)))
             for i, p in enumerate(self.players)
@@ -65,13 +93,19 @@ class Game:
         tasks.append(asyncio.create_task(player.notify(evt.JoinGame(self))))
 
         self.players.append(player)
+        self.played_cards.append([])
 
         await asyncio.wait(tasks)
 
-    async def begin(self):
-        self.started = True
-        # determine order
-        random.shuffle(self.players)
+    async def begin(self) -> None:
+        if self.state != "waiting":
+            raise InvalidStateError(f"Cannot start game. State: {self.state}")
+
+        self.state = "deal"
+
+        # determine order of play
+        if len(self.history) == 0:
+            random.shuffle(self.players)
         # deal cards
         await self.deal()
 
@@ -80,9 +114,9 @@ class Game:
 
         # Start hand
         self.next_player = self.commander
-        self.start_turn()
+        await self.start_turn()
 
-    async def deal(self):
+    async def deal(self) -> None:
         cards = shuffled_deck()
         handlen = len(cards) / len(self.players)
         # TODO track dealer or randomize?
@@ -104,30 +138,16 @@ class Game:
             ]
         )
 
-    async def assign_tasks(self):
-        tasks = self.mission.make_tasks()
-        # TODO bidding round; assign tasks randomly for now
-        self.tasks = [[] for p in self.players]
-        notices = []
-        for i, task in enumerate(tasks):
-            player_num = i % len(self.players) + self.commander
-            self.tasks[player_num].append(task)
-            notices.extend(
-                asyncio.create_task(
-                    player.notify(evt.TaskAssigned(task, self.players[player_num]))
-                )
-                for player in self.players
-            )
-        await asyncio.wait(notices)
+    async def assign_tasks(self) -> None:
+        await self.mission.bid(self.players, self.commander)
 
-    async def start_turn(self):
-        current_trick = []
+    async def start_turn(self) -> None:
+        current_trick: List[Card] = []
 
-        def turn_callback(card):
+        def turn_callback(card: Card) -> None:
             # TODO validate play
             current_trick.append(card)
 
-        trump = None
         player_order = list(permute_range(self.next_player, len(self.players)))
 
         valid = self.hands[self.next_player]
@@ -140,11 +160,11 @@ class Game:
         except ValueError:
             pass  # TODO
 
-        trump = card.suite
+        lead = current_trick[0].suite
         # TODO notify trump?
 
         for player in player_order[1:]:
-            valid = [card for card in self.hands[player] if card.suite == trump]
+            valid = [card for card in self.hands[player] if card.suite == lead]
             if not valid:
                 valid = self.hands[player]
             try:
@@ -157,12 +177,15 @@ class Game:
             except ValueError:
                 pass  # TODO
 
-        assert len(self.current_trick) == len(self.players)
-        assert not any(t is None for t in self.current_trick)
+        for i, card in zip(player_order, current_trick):
+            self.played_cards[i].append(card)
 
-        winner = get_winner(self.current_trick, s)
+        assert len(current_trick) == len(self.players)
+        assert not any(t is None for t in current_trick)
 
-    async def get_description(self):
+        # winner = get_winner(current_trick, s)
+
+    async def get_description(self) -> str:
         s = StringIO()
         s.write(f"Game {self.get_game_id()} with ")
         names = await asyncio.gather(*(p.get_name() for p in self.players))
@@ -176,14 +199,14 @@ class Game:
             s.write(names[-1])
         return s.getvalue()
 
-    def get_game_url(self):
+    def get_game_url(self) -> str:
         return f"https://t.me/Crew9Bot?start={self.get_game_id()}"
 
-    async def set_mission(self, mission: Union[int, Mission]):
-        if self.started:
-            raise InvalidStateError("Game already started")
+    async def set_mission(self, mission: Union[int, Mission]) -> None:
+        if self.state != "waiting":
+            raise InvalidStateError(f"Game already started. State {self.state}")
         if isinstance(mission, int):
-            self.mission = all_missions[mission]
+            self.mission = create_mission(mission, self.players, self.commander)
         else:
             self.mission = mission
 

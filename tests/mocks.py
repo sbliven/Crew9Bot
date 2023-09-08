@@ -13,12 +13,12 @@ class MockPlayer(Player):
     moves: deque[Card]
     notices: List[evt.Event]
 
-    def __init__(self, name, moves: Iterable[Card] = []):
+    def __init__(self, name: str, moves: Iterable[Card] = []) -> None:
         self.name = name
         self.notices = []
         self.moves = deque(moves)
 
-    async def notify(self, gameevent: evt.Event, **kwargs):
+    async def notify(self, gameevent: evt.Event) -> None:
         "Notify player of game events that do not need a response"
         self.notices.append(gameevent)
         logging.info("Player {self.name} recieved {gameevent}")
@@ -29,13 +29,15 @@ class MockPlayer(Player):
 
             if self.moves:
                 move = self.moves.popleft()
-                callback(move)
+            else:
+                move = valid_moves[0]
+            callback(move)
 
     async def get_move(self, previous_moves: Iterable["Card"]) -> "Card":
         return self.moves.popleft()
 
-    async def get_name(self):
+    async def get_name(self) -> str:
         return self.name
 
-    def append_moves(self, *moves: Card):
+    def append_moves(self, *moves: Card) -> None:
         self.moves.extend(moves)
