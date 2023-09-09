@@ -101,12 +101,12 @@ class TelegramPlayer(Player):
 
         def add_hand(cards: List[Card]) -> List[List[Card]]:
             for i in range(1, len(cards)):
-                if cards[0].suite != cards[i].suite:
+                if cards[0].suit != cards[i].suit:
                     return [cards[:i]] + add_hand(cards[i:])
             return [cards]
 
         cards = sorted(self.cards)
         return "\n".join(
-            "- " + " ".join(str(c.value) for c in suite) + suite[0].suite.icon
-            for suite in add_hand(cards)
+            "- " + " ".join(str(c.value) for c in suit) + suit[0].suit.icon
+            for suit in add_hand(cards)
         )

@@ -89,6 +89,7 @@ async def test_mission1_win() -> None:
 
     assert game.mission.get_status(game.played_cards, game.hand_winners) == "win"
 
+
 @pytest.mark.asyncio
 async def test_mission1_lose() -> None:
     random.seed(0)
@@ -131,5 +132,3 @@ async def test_mission1_lose() -> None:
     await game.play(players[2], Card("7☘️"))
 
     assert game.mission.get_status(game.played_cards, game.hand_winners) == "lose"
-
-

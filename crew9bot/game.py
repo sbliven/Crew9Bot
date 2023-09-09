@@ -22,7 +22,7 @@ from io import StringIO
 from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from . import events as evt
-from .cards import DECK_SIZE, Card, Suite, get_winner, shuffled_deck
+from .cards import DECK_SIZE, Card, Suit, get_winner, shuffled_deck
 from .missions import ImpossibleMission, Mission, create_mission
 from .player import Player
 from .util import permute_range
@@ -137,7 +137,7 @@ class Game:
             sorted(cards[math.ceil(handlen * i) : math.ceil(handlen * (i + 1))])
             for i in range(self.n_players)
         ]
-        commander_card = Card(4, Suite.Rocket)
+        commander_card = Card(4, Suit.Rocket)
         for i in range(self.n_players):
             if commander_card in self.hands[i]:
                 self.commander = i
@@ -183,11 +183,10 @@ class Game:
 
         await self.players[self.next_player].notify(evt.YourTurn(valid))
 
-
-    def _get_valid(self, player: int, lead: Optional["Suite"] = None) -> List[Card]:
+    def _get_valid(self, player: int, lead: Optional["Suit"] = None) -> List[Card]:
         "Get all valid cards for the given player"
         if lead is not None:
-            follow_suit =  [card for card in self.hands[player] if card.suite == lead]
+            follow_suit = [card for card in self.hands[player] if card.suit == lead]
             if follow_suit:
                 return follow_suit
         return self.hands[player]
@@ -215,11 +214,11 @@ class Game:
         "Have all players played for the specified hand?"
         return 0 <= handnum < len(self.hand_winners)
 
-    def _lead_suit(self, handnum: int) -> Suite:
+    def _lead_suit(self, handnum: int) -> Suit:
         "Suit that lead the given hand"
         # raises IndexError unless the hand started
         lead_card = self.played_cards[self._get_lead(handnum)][handnum]
-        return lead_card.suite
+        return lead_card.suit
 
     def _accept_play(self, card: Card) -> None:
         "Updates played_cards and hand_winners for a new card"
