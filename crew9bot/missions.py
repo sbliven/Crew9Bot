@@ -3,7 +3,7 @@ import itertools
 import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterable, List, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, List, Literal, Tuple
 
 from .cards import Card, deck
 from .events import TasksAssigned
@@ -30,7 +30,7 @@ class Mission(ABC):
         ...
 
     @abstractmethod
-    def get_status(self, played_cards: List[List[Card]]) -> "State":
+    def get_status(self, played_cards: List[List[Card]], winners: List[int]) -> "State":
         """Get the current win/lose/ongoing status"""
         ...
 
@@ -55,8 +55,8 @@ class Mission(ABC):
         return self.mission_id == other.mission_id
 
 
-class RandomMission(Mission):
-    """Test mission where cards are assigned randomly to players"""
+class TaskMission(Mission):
+    """Base class for missions which distribute task cards to players"""
 
     #: list of tasks for each player
     tasks: List[List[Card]]
@@ -84,6 +84,47 @@ class RandomMission(Mission):
                 )
         return "\n".join(md)
 
+    async def _notify_assigned(self) -> None:
+        notices: List[asyncio.tasks.Task[Any]] = []
+        for i, task in enumerate(self.tasks):
+            notices.extend(
+                asyncio.create_task(player.notify(TasksAssigned(task, self.players[i])))
+                for player in self.players
+            )
+        await asyncio.wait(notices)
+
+    def get_status(self, played_cards: List[List[Card]], winners: List[int]) -> "State":
+        """Get the current win/lose/ongoing status"""
+        won = True  # all tasks successful
+        for task, owner in self.items():
+            task_finished = False
+            for player, cards in enumerate(played_cards):
+                try:
+                    handnum = cards.index(task)
+                except ValueError:
+                    continue
+
+                if owner != winners[handnum]:
+                    return "lose"
+                task_finished = True
+                break
+
+            won = won and task_finished
+
+        return "win" if won else "ongoing"
+
+    def items(self) -> Iterator[Tuple[Card, int]]:
+        """Enumerate tasks as a list of (card, owner) tuples"""
+        return (
+            (task, owner)
+            for owner in range(len(self.tasks))
+            for task in self.tasks[owner]
+        )
+
+
+class RandomMission(TaskMission):
+    """Test mission where cards are assigned randomly to players"""
+
     async def bid(self, players: List["Player"], commander: int) -> None:
         self.players = players
         num_players = len(players)
@@ -93,28 +134,7 @@ class RandomMission(Mission):
         for player, card in zip(player_order, all_tasks):
             self.tasks[player].append(card)
 
-        notices: List[asyncio.tasks.Task[Any]] = []
-        for i, task in enumerate(self.tasks):
-            notices.extend(
-                asyncio.create_task(player.notify(TasksAssigned(task, self.players[i])))
-                for player in self.players
-            )
-        await asyncio.wait(notices)
-
-    def get_status(self, played_cards: List[List[Card]]) -> "State":
-        """Get the current win/lose/ongoing status"""
-        won = True  # all tasks successful
-        for owner in range(len(self.tasks)):
-            for task in self.tasks[owner]:
-                task_finished = False
-                for player, cards in enumerate(played_cards):
-                    if task in cards:
-                        if owner != player:
-                            return "lose"
-                        task_finished = True
-                won = won and task_finished
-
-        return "win" if won else "ongoing"
+        await self._notify_assigned()
 
 
 class ImpossibleMission(Mission):
@@ -126,7 +146,7 @@ class ImpossibleMission(Mission):
     def description(self) -> str:
         return "Unwinnable."
 
-    def get_status(self, played_cards: List[List[Card]]) -> "State":
+    def get_status(self, played_cards: List[List[Card]], winners: List[int]) -> "State":
         """Get the current win/lose/ongoing status"""
         return "ongoing"
 

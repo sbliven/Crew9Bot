@@ -22,7 +22,7 @@ from io import StringIO
 from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from . import events as evt
-from .cards import DECK_SIZE, Card, Suite, shuffled_deck
+from .cards import DECK_SIZE, Card, Suite, get_winner, shuffled_deck
 from .missions import ImpossibleMission, Mission, create_mission
 from .player import Player
 from .util import permute_range
@@ -48,6 +48,8 @@ class Game:
     #: History of all cards played this round.
     #: Indexed [player][hand number]
     played_cards: List[List[Card]]
+    #: Cache index of player who won each hand (and who leads the next hand)
+    hand_winners: List[int]
 
     def __init__(self) -> None:
         """Create a new game. Should normally be instantiated through the GameMaster"""
@@ -60,6 +62,7 @@ class Game:
         self.state = "waiting"
         self.next_player = self.commander
         self.played_cards = []
+        self.hand_winners = []
 
     @property
     def n_players(self) -> int:
@@ -180,62 +183,68 @@ class Game:
 
         await self.players[self.next_player].notify(evt.YourTurn(valid))
 
-    def _current_hand(self) -> Tuple[Optional[List[Optional[Card]]], int]:
-        """Get cards from the most recent (possibly partial) hand
-
-        Returns:
-        - Most recent hand, with None for any missing players
-        - index of the player that lead the hand
-
-
-        """
-        # [B]
-        # [] next_player
-        # []
-        # [A] lead
-        handnum = len(self.played_cards[self.next_player])
-
-        # lead is index of the first player
-        for lead in permute_range(self.next_player + 1, self.n_players):
-            if len(self.played_cards[lead]) == handnum + 1:
-                break
-        if lead == self.next_player:  # complete hand
-            handnum -= 1
-        if handnum < 0:
-            return None, lead
-        return [
-            self.played_cards[i][handnum]
-            if len(self.played_cards[i]) == handnum + 1
-            else None
-            for i in range(self.n_players)
-        ], lead
 
     def _get_valid(self, player: int, lead: Optional["Suite"] = None) -> List[Card]:
         "Get all valid cards for the given player"
         if lead is not None:
-            return [card for card in self.hands[player] if card.suite == lead]
+            follow_suit =  [card for card in self.hands[player] if card.suite == lead]
+            if follow_suit:
+                return follow_suit
         return self.hands[player]
 
-    def _current_winner(self) -> int:
-        "Index of the player currently winning the hand"
-        hand, lead = self._current_hand()
-        if hand is None:
-            raise InvalidStateError("No cards played")
-        lead_card = hand[lead]
-        assert lead_card is not None
-        lead_suite = lead_card.suite
-        winner = lead
-        winning_card: Card = lead_card
+    @property
+    def _handnum(self) -> int:
+        "Index of the next hand to be played"
+        # return len(self.hand_winners)  # should be equivalent
+        return len(self.played_cards[self.next_player])
 
-        for p in permute_range(lead + 1, self.n_players):
-            card = hand[p]
-            if p == self.next_player or card is None:
-                break
-            if card.takes(winning_card, lead_suite):
-                winner = p
-                winning_card = card
+    def _get_lead(self, handnum: int) -> int:
+        "Index of the player who led or will lead the specified hand"
+        if handnum == 0:
+            return self.commander
+        if 0 <= handnum - 1 < len(self.hand_winners):
+            return self.hand_winners[handnum - 1]
+        raise IndexError("Negative indexing not implemented")
 
-        return winner
+    def _hand_started(self, handnum: int) -> bool:
+        "Has anyone played a card for the specified hand?"
+        lead = self._get_lead(handnum)
+        return 0 <= handnum < len(self.played_cards[lead])
+
+    def _hand_finished(self, handnum: int) -> bool:
+        "Have all players played for the specified hand?"
+        return 0 <= handnum < len(self.hand_winners)
+
+    def _lead_suit(self, handnum: int) -> Suite:
+        "Suit that lead the given hand"
+        # raises IndexError unless the hand started
+        lead_card = self.played_cards[self._get_lead(handnum)][handnum]
+        return lead_card.suite
+
+    def _accept_play(self, card: Card) -> None:
+        "Updates played_cards and hand_winners for a new card"
+        # This round is finished if the player after the next has played
+        handnum = self._handnum
+        player = self.next_player
+        successor = (self.next_player + 1) % self.n_players
+        hand_will_finish = handnum < len(self.played_cards[successor])
+
+        # play the card
+        self.played_cards[player].append(card)
+
+        # update hand_winners
+        if hand_will_finish:
+            hand = [self.played_cards[p][handnum] for p in range(self.n_players)]
+            lead_suit = self._lead_suit(handnum)
+            winner = get_winner(hand, lead_suit)
+            self.hand_winners.append(winner)
+            assert len(self.hand_winners) == self._handnum, "Hand_winners out of sync!"
+
+            self.next_player = winner
+
+        else:
+            # update next_player
+            self.next_player = (self.next_player + 1) % self.n_players
 
     async def play(self, player: Player, card: Card) -> None:
         if self.state != "turn":
@@ -247,12 +256,9 @@ class Game:
             )
 
         # Verify card is valid
-        hand, lead_player = self._current_hand()
-
-        if hand:
-            lead_card = hand[lead_player]
-            assert lead_card is not None
-            lead_suit = lead_card.suite
+        handnum = self._handnum
+        if self._hand_started(handnum):
+            lead_suit = self._lead_suit(handnum)
         else:
             lead_suit = None
 
@@ -261,7 +267,7 @@ class Game:
             raise ValueError("Card not a valid play")
 
         # Accept play
-        self.played_cards[self.next_player].append(card)
+        self._accept_play(card)
 
         await asyncio.wait(
             [
@@ -274,9 +280,8 @@ class Game:
         )
 
         # Check if hand finished
-        if hand is not None and lead_player == self.next_player:
-            winner = self._current_winner()
-            self.next_player = winner
+        if self._hand_finished(handnum):
+            winner = self.hand_winners[handnum]
 
             await asyncio.wait(
                 [
@@ -287,7 +292,7 @@ class Game:
                 ]
             )
 
-            status = self.mission.get_status(self.played_cards)
+            status = self.mission.get_status(self.played_cards, self.hand_winners)
 
             if status == "win":
                 await self.win()
@@ -301,8 +306,6 @@ class Game:
             if DECK_SIZE - len(self.played_cards[0]) * self.n_players < self.n_players:
                 await self.lose()
                 return
-        else:
-            self.next_player = (self.next_player + 1) % self.n_players
 
         await self.start_turn()
 

@@ -135,3 +135,15 @@ def shuffled_deck() -> List[Card]:
     cards = deck()
     random.shuffle(cards)
     return cards
+
+
+def get_winner(cards: List[Card], lead: Suite) -> int:
+    "Get index of the winning card"
+    # Safe to assume that at least one card has the lead suit
+    winner = 0
+
+    for i in range(1, len(cards)):
+        if cards[i].takes(cards[winner], lead):
+            winner = i
+
+    return winner
