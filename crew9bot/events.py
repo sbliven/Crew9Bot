@@ -33,7 +33,7 @@ class PlayerJoined(Event):
         self.player = player
 
 
-class CardsDelt(Event):
+class CardsDealt(Event):
     "Notifies the player that they have joined a game & been dealt cards"
     cards: Iterable["Card"]
 

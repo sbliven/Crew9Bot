@@ -10,6 +10,7 @@ from .game import Game
 from .player import TelegramPlayer
 
 if TYPE_CHECKING:
+    from telethon.events.common import EventBuilder as ttEvent  # type: ignore
     from telethon.types import Peer  # type: ignore
 
     from . import events as evt
@@ -43,7 +44,7 @@ class Crew9Bot:
 
         # Public commands
         @self.client.on(events.NewMessage(pattern=r"/start"))
-        async def start_cmd(event: events.Event) -> None:
+        async def start_cmd(event: "ttEvent") -> None:
             logging.info(f"Received {event.message.message}")
             fields = event.message.message.strip().split()
 
@@ -67,7 +68,7 @@ class Crew9Bot:
                     await event.respond(f"Error: I can't find game `{fields[1]}`")
 
         @self.client.on(events.NewMessage(pattern="/new"))
-        async def new_cmd(event: events.Event) -> None:
+        async def new_cmd(event: "ttEvent") -> None:
             logging.info(f"Received {event.message.message}")
 
             player = self.get_player(event.peer_id)
@@ -76,7 +77,7 @@ class Crew9Bot:
             await game.join(player)
 
         @self.client.on(events.NewMessage(pattern="/join"))
-        async def join_cmd(event: events.Event) -> None:
+        async def join_cmd(event: "ttEvent") -> None:
             logging.info(f"Received {event.message.message}")
             fields = event.message.message.strip().split()
             if len(fields) != 2:
@@ -99,7 +100,7 @@ class Crew9Bot:
 
         # Private commands
         @self.client.on(events.NewMessage(pattern="/clear"))
-        async def clear_cmd(event: events.Event) -> None:
+        async def clear_cmd(event: "ttEvent") -> None:
             logging.info(f"Received {event.message.message}")
 
             m = await event.respond("Clearing keyboard", buttons=Button.clear())
@@ -107,14 +108,14 @@ class Crew9Bot:
 
         # Tests & easter eggs
         @self.client.on(events.NewMessage(pattern="!ping"))
-        async def ping_cmd(event: events.Event) -> None:
+        async def ping_cmd(event: "ttEvent") -> None:
             # Say "!pong" whenever you send "!ping", then delete both messages
             m = await event.respond("!pong")
             await asyncio.sleep(5)
             await self.client.delete_messages(event.chat_id, [event.id, m.id])
 
         @self.client.on(events.NewMessage(pattern="hello|hi|hey"))
-        async def greeting(event: events.Event) -> None:
+        async def greeting(event: "ttEvent") -> None:
             logging.info(f"Received {event.message.message}")
 
             you = await self.client.get_entity(event.peer_id)
@@ -122,7 +123,7 @@ class Crew9Bot:
             await event.reply(f"Hey, {you.first_name}!")
 
         @self.client.on(events.NewMessage(pattern="/info"))
-        async def info_cmd(event: events.Event) -> None:
+        async def info_cmd(event: "ttEvent") -> None:
             logging.info(f"Received {event.message.message}")
             me = await self.client.get_me()
             await event.respond(f"```\nget_me -> {me.stringify()}\n```")
@@ -137,7 +138,7 @@ class Crew9Bot:
             await event.respond(f"```\nyou -> {you.stringify()}\n```")
 
         @self.client.on(events.NewMessage(pattern="/list"))
-        async def list_cmd(event: events.Event) -> None:
+        async def list_cmd(event: "ttEvent") -> None:
             logging.info(f"Received {event.message.message}")
             msg = "Running games:\n\n"
 
@@ -150,7 +151,7 @@ class Crew9Bot:
             await event.respond(msg)
 
         @self.client.on(events.NewMessage(pattern="/begin"))
-        async def begin_cmd(event: events.Event) -> None:
+        async def begin_cmd(event: "ttEvent") -> None:
             logging.info(f"Received {event.message.message}")
             player = self.get_player(event.peer_id)
             if player.game:
@@ -164,7 +165,7 @@ class Crew9Bot:
                 )
 
         @self.client.on(events.NewMessage(pattern="/mission"))
-        async def mission_cmd(event: events.Event) -> None:
+        async def mission_cmd(event: "ttEvent") -> None:
             fields = event.message.message.strip().split()
 
             player = self.get_player(event.peer_id)

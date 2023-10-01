@@ -146,7 +146,7 @@ class Game:
         # Notify players of hands
         await asyncio.wait(
             [
-                asyncio.create_task(player.notify(evt.CardsDelt(self.hands[i])))
+                asyncio.create_task(player.notify(evt.CardsDealt(self.hands[i])))
                 for i, player in enumerate(self.players)
             ]
         )
